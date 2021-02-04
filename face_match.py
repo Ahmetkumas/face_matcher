@@ -6,96 +6,99 @@ import imutils
 import cv2
 import time
 
-model = load_model('facenet_keras.h5')
+MODEL_PATH = 'facenet_keras.h5'
+DETECTION_MODEL_PATH = 'haarcascade_frontalface_default.xml'
 
+class faceVerification():
+    def __init__(self):
+        self.model = self.load_model(MODEL_PATH)
+        self.cascade_model = self.load_detection_model(DETECTION_MODEL_PATH)
 
-def load_img(image_path):
-    image = cv2.imread(image_path)
-    return image
+    def load_model(self, model):
+        # load facenet model
+        return load_model(model)
 
+    def load_detection_model(self, DETECTION_MODEL_PATH):
+        # load face detection model
+        return cv2.CascadeClassifier(DETECTION_MODEL_PATH)
 
-def imshow(img):
-    cv2.imshow("image", img)
-    key = cv2.waitKey(0)
+    def load_img(self, image_path):
+        # read image
+        image = cv2.imread(image_path)
+        return image
 
+    def imshow(self, img):
+        # display image
+        cv2.imshow("image", img)
+        key = cv2.waitKey(0)
 
-def detect_face(image):
-    face_cascade = cv2.CascadeClassifier('haarcascade_frontalface_default.xml')
-    #eye_cascade = cv2.CascadeClassifier('haarcascade_eye.xml')
+    def detect_face(self, image):
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        faces = self.cascade_model.detectMultiScale(gray, 1.3, 5)
+        if not len(list(faces)):
+            return None
+        #for (x, y, w, h) in faces:
+            #img = cv2.rectangle(image, (x, y), (x + w, y + h), (255, 0, 0), 2)
 
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
-    for (x, y, w, h) in faces:
-        img = cv2.rectangle(image, (x, y), (x + w, y + h), (255, 0, 0), 2)
-        roi_gray = gray[y:y + h, x:x + w]
-        roi_color = img[y:y + h, x:x + w]
-        #eyes = eye_cascade.detectMultiScale(roi_gray)
-        # for (ex,ey,ew,eh) in eyes:
-        # cv2.rectangle(roi_color,(ex,ey),(ex+ew,ey+eh),(0,255,0),2)
-    #print("roi_color")
-    return roi_color
+        (x, y, w, h)  = faces[0]
+        return image[y:y + h, x:x + w]
 
-def get_embedding(model, face_pixels):
-    # scale pixel values
-    face_pixels = face_pixels.astype('float32')
-    # standardize pixel values across channels (global)
-    mean, std = face_pixels.mean(), face_pixels.std()
-    face_pixels = (face_pixels - mean) / std
-    # transform face into one sample
-    samples = expand_dims(face_pixels, axis=0)
-    # make prediction to get embedding
-    yhat = model.predict(samples)
-    return yhat[0]
+    def get_embedding(self, model, face_pixels):
+        # scale pixel values
+        face_pixels = face_pixels.astype('float32')
+        # standardize pixel values across channels (global)
+        mean, std = face_pixels.mean(), face_pixels.std()
+        face_pixels = (face_pixels - mean) / std
+        # transform face into one sample
+        samples = expand_dims(face_pixels, axis=0)
+        # make prediction to get embedding
+        yhat = model.predict(samples)
+        return yhat[0]
 
-def extract_face(face_pixels):
-    newTrainX = list()
-    embedding = get_embedding(model, face_pixels)
-    newTrainX.append(embedding)
-    newTrainX = asarray(newTrainX)
-    return newTrainX
+    def extract_face(self, face_pixels):
+        # convert face pixels to feature vectors.
+        newTrainX = list()
+        embedding = self.get_embedding(self.model, face_pixels)
+        newTrainX.append(embedding)
+        newTrainX = asarray(newTrainX)
+        return newTrainX
 
+    def is_passed(self, value):
+        # check the distance similarity
+        # other distance methods can be implemented like cosine similarity
+        match_result = False
+        if value < 110:
+            match_result = True
+            return match_result
+        return match_result
 
-def result1(value):
-    match_Result = False
-    #value = process()
-    if value < 110:
-        match_Result = True
-        #print(match_Result)
-        return match_Result
-    #print(value)
-    #print(match_Result)
-    return match_Result
+    def process(self, img1, img2):
+        image1 = self.load_img(img1)
+        image2 = self.load_img(img2)
 
+        # detect faces using cascade
+        face_a = self.detect_face(image1)
+        face_b = self.detect_face(image2)
 
-def process(img1, img2):
-    start = time.time()
-    image1 = load_img(img1)
-    image2 = load_img(img2)
-    #bimshow(image1)
+        if face_a is not None:
+            resized_face_a = cv2.resize(face_a,(160,160))
+            resized_face_b = cv2.resize(face_b,(160,160))
 
-    roi_color1 = detect_face(image1)
-    roi_color1 = cv2.resize(roi_color1,(160,160))
-    roi_color2 = detect_face(image2)
-    roi_color2 = cv2.resize(roi_color2,(160,160))
+            face_features_a = self.extract_face(resized_face_a)
+            face_features_b = self.extract_face(resized_face_b)
 
+            distance = np.sum(np.abs(face_features_a - face_features_b))
+            match_result = self.is_passed(distance)
+            return {"match_result": match_result, 
+                    "distance": distance}
 
-    #imshow(roi_color1)
-    #imshow(roi_color2)
-
-    features1 = extract_face(roi_color1)
-    features2 = extract_face(roi_color2)
-
-    result_value = np.sum(np.abs(features1 - features2))
-    match_result = result1(result_value)
-    return match_result, result_value
-
-
-
+        return {"match_result": None, 
+                    "distance": None}
 
 if __name__ == '__main__':
+    FV = faceVerification()
     start = time.time()
-    print(process("ben1.jpg", "ben2.jpg"))
+    output = FV.process("ben1.jpg", "ben2.jpg")
     end = time.time()
-    #result()
-    takes_time = end - start
-    print(takes_time)
+    process_time = end - start
+    print(" Match:",output["match_result"],"\n", "Distance:" ,output["distance"],"\n", "Process Time:", process_time)
